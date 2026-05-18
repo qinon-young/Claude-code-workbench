@@ -7,7 +7,7 @@
 - **后端**: Node.js + Express
 - **前端**: 原生 HTML/CSS/JS (SPA)，marked.js CDN 渲染 Markdown
 
-## 快速开始
+## 快速开始 
 
 ```bash
 npm install --registry=https://registry.npmmirror.com
