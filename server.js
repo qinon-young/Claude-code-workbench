@@ -47,9 +47,11 @@ try {
 function spawnClaude(prompt, cwd = WORKSPACE_ROOT) {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
-    const cmd = claudePath.includes(' ') ? `"${claudePath}"` : claudePath;
-    const child = spawn(cmd, ['-p', prompt], {
-      cwd, shell: true,
+    // cmd.exe /c: no shell:true arg mangling; --bare: skip CLAUDE.md for speed
+    const child = spawn('cmd.exe', [
+      '/c', 'claude', '--bare', '--permission-mode', 'bypassPermissions', '-p', prompt,
+    ], {
+      cwd,
       env: { ...process.env, ...mcpEnv.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

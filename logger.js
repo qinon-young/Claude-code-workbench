@@ -13,9 +13,20 @@ function todayFile() {
   return path.join(LOG_DIR, `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.log`);
 }
 
+function localISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-';
+  const h = pad(Math.floor(Math.abs(off) / 60));
+  const m = pad(Math.abs(off) % 60);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+    `${sign}${h}:${m}`;
+}
+
 function format(level, msg) {
-  const ts = new Date().toISOString();
-  return `[${ts}] [${level}] ${msg}\n`;
+  return `[${localISO()}] [${level}] ${msg}\n`;
 }
 
 function write(level, msg) {
