@@ -48,7 +48,9 @@ try {
 function spawnClaude(prompt, cwd = WORKSPACE_ROOT) {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
-    const child = spawn(claudePath, ['-p', prompt], {
+    // Quote command if path contains spaces (Windows shell compatibility)
+    const cmd = claudePath.includes(' ') ? `"${claudePath}"` : claudePath;
+    const child = spawn(cmd, ['-p', prompt], {
       cwd,
       shell: true,
       env: { ...process.env, ...mcpEnv.env },
@@ -103,7 +105,8 @@ app.post('/api/standardize', upload.array('files', 20), async (req, res) => {
   const { taskDir, rawDir, taskId } = req;
   const t0 = Date.now();
 
-  logger.info(`[${taskId}] 收到 ${(req.files || []).length} 个文件: ${(req.files || []).map((f) => f.originalname).join(', ')}`);
+  const fileNames = (req.files || []).map((f) => Buffer.from(f.originalname, 'latin1').toString('utf8')).join(', ');
+  logger.info(`[${taskId}] 收到 ${(req.files || []).length} 个文件: ${fileNames}`);
 
   try {
     const files = fs.readdirSync(rawDir).filter((f) => f !== 'index.md');
