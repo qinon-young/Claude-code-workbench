@@ -2,7 +2,7 @@
 
 本地 Web 工作台原型，通过 Web UI 驱动的 Workflow 引擎调用 Claude Code CLI 执行技能任务。
 
-## 技术栈
+## 技术栈 
 
 - **后端**: Node.js + Express
 - **前端**: 原生 HTML/CSS/JS (SPA)，marked.js CDN 渲染 Markdown
