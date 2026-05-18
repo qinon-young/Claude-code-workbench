@@ -1,0 +1,44 @@
+{
+  "workspaceRoot": "D:/NL/CHBN",
+  "projectPaths": [
+    "UPC_BIZ_SHELVES_MSVC",
+    "UPC_BIZ_ORDER_MSVC",
+    "UPC_BIZ_COMPONENTS_MSVC",
+    "UPC_BIZ_SHELVES_WEB",
+    "UPC_BIZ_COMPONENTS_WEB",
+    "WGT_BIZ_SHELVES_WEB"
+  ],
+  "reqOutputDir": "UPC_TEST/Claude/需求文档",
+  "server": {
+    "port": 3100,
+    "cliTimeoutMs": 300000
+  },
+  "log": {
+    "dir": "logs"
+  },
+  "mcpServers": {
+    "ob-sse": {
+      "transport": "sse",
+      "url": "http://127.0.0.1:8000/sse"
+    }
+  },
+  "databases": {
+    "mysql": {
+      "host": "",
+      "port": 3306,
+      "user": "",
+      "password": "",
+      "database": ""
+    },
+    "redis": {
+      "host": "",
+      "port": 6379,
+      "password": ""
+    },
+    "minio": {
+      "endpoint": "",
+      "accessKey": "",
+      "secretKey": ""
+    }
+  }
+}

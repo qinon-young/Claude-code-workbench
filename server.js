@@ -1,14 +1,21 @@
 const express = require('express');
 const multer = require('multer');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const logger = require('./logger');
+const { loadConfig, getMcpEnv } = require('./config');
 
-const WORKSPACE_ROOT = 'D:/NL/CHBN';
-const REQ_ROOT = path.join(WORKSPACE_ROOT, 'UPC_TEST/Claude/需求文档');
-const PORT = process.env.PORT || 3100;
-const CLI_TIMEOUT = Number(process.env.CLI_TIMEOUT) || 300_000;
+// ── Config ──────────────────────────────────────────────────
+const config = loadConfig();
+const WORKSPACE_ROOT = config.workspaceRoot;
+const REQ_ROOT = path.join(WORKSPACE_ROOT, config.reqOutputDir);
+const PORT = config.server.port;
+const CLI_TIMEOUT = config.server.cliTimeoutMs;
+
+const mcpEnv = getMcpEnv(config);
+logger.info(`启动工作台 — 工作区: ${WORKSPACE_ROOT}, 需求目录: ${REQ_ROOT}, MCP 服务器: ${Object.keys(mcpEnv.servers).join(', ') || '(无)'}`);
 
 const app = express();
 
@@ -24,11 +31,27 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024, files: 20 },
 });
 
+// ── Util: resolve claude CLI path ────────────────────────────
+let claudePath = 'claude'; // default
+try {
+  claudePath = execSync('where claude 2>nul', { timeout: 5000, encoding: 'utf8' })
+    .split(/\r?\n/)[0]
+    .trim();
+  if (claudePath) {
+    logger.info(`claude CLI 路径: ${claudePath}`);
+  }
+} catch {
+  logger.error('claude CLI 未在 PATH 中找到，将使用默认命令 "claude"');
+}
+
 // ── Util: spawn claude CLI ──────────────────────────────────
 function spawnClaude(prompt, cwd = WORKSPACE_ROOT) {
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', ['-p', prompt], {
+    const startTime = Date.now();
+    const child = spawn(claudePath, ['-p', prompt], {
       cwd,
+      shell: true,
+      env: { ...process.env, ...mcpEnv.env },
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: CLI_TIMEOUT,
     });
@@ -36,18 +59,25 @@ function spawnClaude(prompt, cwd = WORKSPACE_ROOT) {
     let stdout = '';
     let stderr = '';
 
+    logger.info(`spawnClaude PID=${child.pid} 开始 — prompt: ${prompt.slice(0, 80)}...`);
+
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
 
     child.on('close', (code) => {
+      const elapsed = Date.now() - startTime;
       if (code === 0) {
+        logger.info(`spawnClaude PID=${child.pid} 完成 — 耗时 ${elapsed}ms, stdout ${stdout.length} 字节`);
         resolve(stdout.trim());
       } else {
+        logger.error(`spawnClaude PID=${child.pid} 失败 — 退出码 ${code}, 耗时 ${elapsed}ms, stderr: ${stderr.trim().slice(0, 200)}`);
         reject(new Error(`claude CLI exited with code ${code}: ${stderr.trim()}`));
       }
     });
 
     child.on('error', (err) => {
+      const elapsed = Date.now() - startTime;
+      logger.error(`spawnClaude PID=${child.pid} 异常 — ${err.message}, 耗时 ${elapsed}ms`);
       if (err.code === 'ENOENT') {
         reject(new Error('claude CLI 未找到。请确认已安装 Claude Code 且在 PATH 中。'));
       } else {
@@ -65,14 +95,17 @@ app.post('/api/standardize', (req, res, next) => {
   req.taskId = taskId;
 
   fs.mkdirSync(req.rawDir, { recursive: true });
+  logger.info(`[${taskId}] 创建任务目录: ${req.taskDir}`);
   next();
 });
 
 app.post('/api/standardize', upload.array('files', 20), async (req, res) => {
   const { taskDir, rawDir, taskId } = req;
+  const t0 = Date.now();
+
+  logger.info(`[${taskId}] 收到 ${(req.files || []).length} 个文件: ${(req.files || []).map((f) => f.originalname).join(', ')}`);
 
   try {
-    // Build index.md listing source files
     const files = fs.readdirSync(rawDir).filter((f) => f !== 'index.md');
     const indexContent = [
       `# ${taskId} 索引`,
@@ -89,11 +122,9 @@ app.post('/api/standardize', upload.array('files', 20), async (req, res) => {
     ].join('\n');
     fs.writeFileSync(path.join(taskDir, 'index.md'), indexContent, 'utf-8');
 
-    // Spawn claude CLI to run standardize-requirement
-    const reqPath = `UPC_TEST/Claude/需求文档/${taskId}`;
+    const reqPath = `${config.reqOutputDir}/${taskId}`;
     const output = await spawnClaude(`/standardize-requirement ${reqPath}`);
 
-    // Read output
     const finalPath = path.join(taskDir, 'final.md');
     const draftPath = path.join(taskDir, 'working', '草稿-v1.md');
     let markdown = '';
@@ -105,9 +136,10 @@ app.post('/api/standardize', upload.array('files', 20), async (req, res) => {
       markdown = output || '（标准化完成，但未生成 final.md 或草稿文件）';
     }
 
+    logger.info(`[${taskId}] 标准化完成 — 耗时 ${Date.now() - t0}ms, 输出 ${markdown.length} 字节`);
     res.json({ taskId, output: markdown, status: 'done' });
   } catch (err) {
-    console.error(`[${taskId}] Error:`, err.message);
+    logger.error(`[${taskId}] 标准化失败 — ${err.message}`);
     res.status(500).json({ taskId, error: err.message, status: 'error' });
   }
 });
@@ -116,18 +148,22 @@ app.post('/api/standardize', upload.array('files', 20), async (req, res) => {
 app.post('/api/prompt', async (req, res) => {
   const taskId = 'PMT-' + uuidv4().slice(0, 8);
   const { prompt } = req.body || {};
+  const t0 = Date.now();
 
   if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+    logger.error(`[${taskId}] prompt 为空`);
     return res.status(400).json({ taskId, error: 'prompt 不能为空', status: 'error' });
   }
 
+  logger.info(`[${taskId}] 收到 prompt (${prompt.length} 字符) — IP: ${req.ip}`);
+
   try {
     const output = await spawnClaude(prompt.trim());
-    // Strip ANSI escape codes
     const clean = output.replace(/\x1b\[[0-9;]*m/g, '');
+    logger.info(`[${taskId}] prompt 完成 — 耗时 ${Date.now() - t0}ms, 输出 ${clean.length} 字节`);
     res.json({ taskId, output: clean, status: 'done' });
   } catch (err) {
-    console.error(`[${taskId}] Error:`, err.message);
+    logger.error(`[${taskId}] prompt 失败 — ${err.message}`);
     res.status(500).json({ taskId, error: err.message, status: 'error' });
   }
 });
@@ -135,7 +171,6 @@ app.post('/api/prompt', async (req, res) => {
 // ── GET /api/output/:taskId ─────────────────────────────────
 app.get('/api/output/:taskId', (req, res) => {
   const { taskId } = req.params;
-  // Only support looking up standardize tasks (REQ-WB-*)
   if (!taskId.startsWith('REQ-WB-')) {
     return res.status(404).json({ error: 'task not found', status: 'error' });
   }
@@ -154,5 +189,7 @@ app.get('/api/output/:taskId', (req, res) => {
 
 // ── Start ───────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`工作台已启动: http://localhost:${PORT}`);
+  const msg = `工作台已启动: http://localhost:${PORT}`;
+  console.log(msg);
+  logger.info(msg);
 });

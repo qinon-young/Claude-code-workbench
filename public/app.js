@@ -34,7 +34,6 @@ fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInpu
 
 function addFiles(files) {
   for (const f of files) {
-    // Avoid duplicates by name
     let dup = false;
     for (const ex of selectedFiles.files) { if (ex.name === f.name && ex.size === f.size) { dup = true; break; } }
     if (dup) continue;
@@ -91,6 +90,7 @@ btnStandardize.addEventListener('click', async () => {
   standardizeSpinner.style.display = 'inline-block';
   standardizeStatus.textContent = '正在上传并标准化…';
   standardizeStatus.className = 'status';
+  clearPreview();
 
   const formData = new FormData();
   for (const f of selectedFiles.files) {
@@ -107,10 +107,12 @@ btnStandardize.addEventListener('click', async () => {
     } else {
       standardizeStatus.textContent = data.error || '未知错误';
       standardizeStatus.className = 'status error';
+      showError(data.error || '请求失败，服务端未返回具体错误信息', data.taskId);
     }
   } catch (err) {
     standardizeStatus.textContent = '网络错误: ' + err.message;
     standardizeStatus.className = 'status error';
+    showError('网络连接失败：无法连接到工作台服务。<br><br>请检查：<br>1. 服务是否已启动（<code>npm start</code>）<br>2. 端口 ' + (location.port || '3100') + ' 是否被占用', null);
   } finally {
     btnStandardize.disabled = false;
     standardizeSpinner.style.display = 'none';
@@ -135,6 +137,7 @@ btnPrompt.addEventListener('click', async () => {
   promptSpinner.style.display = 'inline-block';
   promptStatus.textContent = '正在执行…';
   promptStatus.className = 'status';
+  clearPreview();
 
   try {
     const res = await fetch('/api/prompt', {
@@ -150,10 +153,12 @@ btnPrompt.addEventListener('click', async () => {
     } else {
       promptStatus.textContent = data.error || '未知错误';
       promptStatus.className = 'status error';
+      showError(data.error || '请求失败，服务端未返回具体错误信息', data.taskId);
     }
   } catch (err) {
     promptStatus.textContent = '网络错误: ' + err.message;
     promptStatus.className = 'status error';
+    showError('网络连接失败：无法连接到工作台服务。<br><br>请检查：<br>1. 服务是否已启动（<code>npm start</code>）<br>2. 端口 ' + (location.port || '3100') + ' 是否被占用', null);
   } finally {
     btnPrompt.disabled = false;
     promptSpinner.style.display = 'none';
@@ -165,9 +170,17 @@ const previewEmpty = document.getElementById('previewEmpty');
 const previewContent = document.getElementById('previewContent');
 const previewLabel = document.getElementById('previewLabel');
 
+function clearPreview() {
+  previewEmpty.style.display = 'flex';
+  previewEmpty.textContent = '等待任务执行…';
+  previewContent.style.display = 'none';
+  previewLabel.textContent = '';
+}
+
 function showPreview(markdown, taskId) {
   previewEmpty.style.display = 'none';
   previewContent.style.display = 'block';
+  previewContent.className = 'preview-content';
   previewLabel.textContent = taskId ? `taskId: ${taskId}` : '';
 
   if (typeof marked === 'undefined') {
@@ -175,10 +188,27 @@ function showPreview(markdown, taskId) {
     return;
   }
 
-  // Configure marked for safe rendering
   marked.setOptions?.({ breaks: true, gfm: true });
   const html = marked.parse(markdown);
   previewContent.innerHTML = html;
+  previewContent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function showError(message, taskId) {
+  previewEmpty.style.display = 'none';
+  previewContent.style.display = 'block';
+  previewContent.className = 'preview-content error-block';
+  previewLabel.textContent = taskId ? `taskId: ${taskId}` : '';
+
+  previewContent.innerHTML = `
+    <div style="
+      background: #fff5f5; border: 1px solid #feb2b2; border-left: 4px solid #e53e3e;
+      padding: 16px 20px; border-radius: 8px; color: #c53030;
+    ">
+      <div style="font-weight:600; font-size:15px; margin-bottom:8px;">❌ 执行失败</div>
+      <div style="font-size:14px; line-height:1.8;">${message}</div>
+    </div>
+  `;
   previewContent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
