@@ -5,7 +5,7 @@
 ## 技术栈 
 
 - **后端**: Node.js + Express
-- **前端**: 原生 HTML/CSS/JS (SPA)，marked.js CDN 渲染 Markdown
+- **前端**: 原生 HTML/CSS/JS (SPA)，marked.js CDN 渲染 Markdown 
 
 ## 快速开始 
 
