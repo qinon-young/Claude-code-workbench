@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>融合前端工作台</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: #f5f6fa; color: #2c3e50; line-height: 1.6;
+    }
+    .header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px;
+    }
+    .header h1 { font-size: 20px; font-weight: 600; letter-spacing: 1px; }
+    .header .sub { font-size: 13px; opacity: .65; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .tabs { display: flex; gap: 0; border-bottom: 2px solid #e0e0e0; margin-bottom: 24px; }
+    .tab {
+      padding: 10px 28px; cursor: pointer; border: none; background: none;
+      font-size: 15px; color: #888; border-bottom: 2px solid transparent;
+      margin-bottom: -2px; transition: .2s; position: relative;
+    }
+    .tab:hover { color: #1a1a2e; }
+    .tab.active { color: #1a1a2e; border-bottom-color: #1a1a2e; font-weight: 600; }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed #ccc; border-radius: 12px; padding: 48px 24px;
+      text-align: center; background: #fff; transition: .2s; cursor: pointer;
+    }
+    .drop-zone.dragover { border-color: #1a1a2e; background: #f0f0ff; }
+    .drop-zone .icon { font-size: 40px; margin-bottom: 12px; }
+    .drop-zone .hint { font-size: 15px; color: #666; }
+    .drop-zone .hint strong { color: #1a1a2e; }
+    .drop-zone .types { font-size: 12px; color: #999; margin-top: 8px; }
+
+    /* File list */
+    .file-list { margin-top: 16px; }
+    .file-item {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #fff; padding: 8px 14px; border-radius: 8px; margin-bottom: 6px;
+      border: 1px solid #eee; font-size: 14px;
+    }
+    .file-item .name { color: #2c3e50; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-item .size { color: #999; font-size: 12px; margin-left: 12px; flex-shrink: 0; }
+    .file-item .remove { color: #e74c3c; cursor: pointer; margin-left: 12px; font-size: 18px; line-height: 1; }
+
+    /* Prompt area */
+    .prompt-area { display: flex; flex-direction: column; gap: 12px; }
+    .prompt-area textarea {
+      width: 100%; min-height: 160px; padding: 14px; border: 1px solid #ddd;
+      border-radius: 10px; font-size: 14px; font-family: inherit; resize: vertical;
+    }
+    .prompt-area textarea:focus { outline: none; border-color: #1a1a2e; }
+
+    /* Buttons */
+    .btn {
+      padding: 10px 24px; border: none; border-radius: 8px; font-size: 14px;
+      font-weight: 600; cursor: pointer; transition: .2s; display: inline-flex;
+      align-items: center; gap: 8px;
+    }
+    .btn-primary { background: #1a1a2e; color: #fff; }
+    .btn-primary:hover { background: #16213e; }
+    .btn-primary:disabled { background: #bbb; cursor: not-allowed; }
+    .btn-secondary { background: #fff; color: #1a1a2e; border: 1px solid #ddd; }
+
+    .actions { display: flex; gap: 10px; margin-top: 12px; }
+
+    /* Preview */
+    .preview-section { margin-top: 28px; }
+    .preview-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .preview-header h2 { font-size: 17px; font-weight: 600; }
+    .preview-box {
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 12px;
+      min-height: 200px; max-height: 600px; overflow: auto;
+    }
+    .preview-box .empty {
+      display: flex; align-items: center; justify-content: center;
+      height: 200px; color: #bbb; font-size: 15px;
+    }
+    .preview-content { padding: 24px 32px; }
+    .preview-content h1 { font-size: 1.6em; margin: 16px 0 10px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+    .preview-content h2 { font-size: 1.3em; margin: 14px 0 8px; }
+    .preview-content h3 { font-size: 1.1em; margin: 12px 0 6px; }
+    .preview-content p { margin: 8px 0; }
+    .preview-content ul, .preview-content ol { padding-left: 24px; margin: 8px 0; }
+    .preview-content li { margin: 4px 0; }
+    .preview-content code {
+      background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: .9em;
+    }
+    .preview-content pre {
+      background: #1e1e2e; color: #cdd6f4; padding: 16px; border-radius: 8px;
+      overflow-x: auto; margin: 12px 0; font-size: 13px;
+    }
+    .preview-content pre code { background: none; padding: 0; color: inherit; }
+    .preview-content table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    .preview-content th, .preview-content td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+    .preview-content th { background: #f5f5f5; font-weight: 600; }
+    .preview-content blockquote {
+      border-left: 3px solid #1a1a2e; padding: 4px 14px; margin: 10px 0; color: #555; background: #f9f9f9;
+    }
+
+    /* Status bar */
+    .status { margin-top: 12px; font-size: 13px; color: #888; min-height: 20px; }
+    .status.error { color: #e74c3c; }
+    .status.success { color: #27ae60; }
+
+    .spinner {
+      display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc;
+      border-top-color: #1a1a2e; border-radius: 50%; animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 768px) {
+      .container { padding: 16px; }
+      .drop-zone { padding: 32px 16px; }
+      .preview-content { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🔧 融合前端工作台</h1>
+    <span class="sub">需求标准化 &middot; Claude Code</span>
+  </div>
+
+  <div class="container">
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-tab="standardize">📄 需求标准化</button>
+      <button class="tab" data-tab="prompt">💬 自由 Prompt</button>
+    </div>
+
+    <!-- Standardize Panel -->
+    <div class="panel active" id="panel-standardize">
+      <div class="drop-zone" id="dropZone">
+        <div class="icon">📂</div>
+        <div class="hint">拖拽文件到此处，或 <strong>点击选择文件</strong></div>
+        <div class="types">支持 .txt .md .csv 等文本文件，可多选</div>
+      </div>
+      <input type="file" id="fileInput" multiple accept=".txt,.md,.csv,.eml,.json,.xml,.yaml,.yml" style="display:none">
+      <div class="file-list" id="fileList"></div>
+      <div class="actions">
+        <button class="btn btn-primary" id="btnStandardize" disabled>
+          <span id="standardizeSpinner" style="display:none" class="spinner"></span>
+          开始标准化
+        </button>
+        <button class="btn btn-secondary" id="btnClearFiles" disabled>清空文件</button>
+      </div>
+      <div class="status" id="standardizeStatus"></div>
+    </div>
+
+    <!-- Prompt Panel -->
+    <div class="panel" id="panel-prompt">
+      <div class="prompt-area">
+        <textarea id="promptInput" placeholder="输入任意提示词，将直接调用 Claude Code CLI 执行…&#10;&#10;示例：列出项目根目录下的所有 Java 工程"></textarea>
+        <div class="actions">
+          <button class="btn btn-primary" id="btnPrompt" disabled>
+            <span id="promptSpinner" style="display:none" class="spinner"></span>
+            提交执行
+          </button>
+        </div>
+      </div>
+      <div class="status" id="promptStatus"></div>
+    </div>
+
+    <!-- Shared Preview -->
+    <div class="preview-section">
+      <div class="preview-header">
+        <h2>📋 预览输出</h2>
+        <span id="previewLabel" style="font-size:13px;color:#999;"></span>
+      </div>
+      <div class="preview-box">
+        <div class="empty" id="previewEmpty">等待任务执行…</div>
+        <div class="preview-content" id="previewContent" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
