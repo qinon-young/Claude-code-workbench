@@ -49,7 +49,7 @@
       background: #fff; padding: 8px 14px; border-radius: 8px; margin-bottom: 6px;
       border: 1px solid #eee; font-size: 14px;
     }
-    .file-item .name { color: #2c3e50; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-item .name { color: #2c3e50; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
     .file-item .size { color: #999; font-size: 12px; margin-left: 12px; flex-shrink: 0; }
     .file-item .remove { color: #e74c3c; cursor: pointer; margin-left: 12px; font-size: 18px; line-height: 1; }
 
@@ -77,8 +77,7 @@
     /* Preview */
     .preview-section { margin-top: 28px; }
     .preview-header {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 12px;
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
     }
     .preview-header h2 { font-size: 17px; font-weight: 600; }
     .preview-box {
@@ -96,22 +95,14 @@
     .preview-content p { margin: 8px 0; }
     .preview-content ul, .preview-content ol { padding-left: 24px; margin: 8px 0; }
     .preview-content li { margin: 4px 0; }
-    .preview-content code {
-      background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: .9em;
-    }
-    .preview-content pre {
-      background: #1e1e2e; color: #cdd6f4; padding: 16px; border-radius: 8px;
-      overflow-x: auto; margin: 12px 0; font-size: 13px;
-    }
+    .preview-content code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: .9em; }
+    .preview-content pre { background: #1e1e2e; color: #cdd6f4; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 12px 0; font-size: 13px; }
     .preview-content pre code { background: none; padding: 0; color: inherit; }
     .preview-content table { border-collapse: collapse; width: 100%; margin: 12px 0; }
     .preview-content th, .preview-content td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
     .preview-content th { background: #f5f5f5; font-weight: 600; }
-    .preview-content blockquote {
-      border-left: 3px solid #1a1a2e; padding: 4px 14px; margin: 10px 0; color: #555; background: #f9f9f9;
-    }
+    .preview-content blockquote { border-left: 3px solid #1a1a2e; padding: 4px 14px; margin: 10px 0; color: #555; background: #f9f9f9; }
 
-    /* Status bar */
     .status { margin-top: 12px; font-size: 13px; color: #888; min-height: 20px; }
     .status.error { color: #e74c3c; }
     .status.success { color: #27ae60; }
@@ -121,6 +112,13 @@
       border-top-color: #1a1a2e; border-radius: 50%; animation: spin .6s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-block {
+      background: #fff5f5; border: 1px solid #feb2b2; border-left: 4px solid #e53e3e;
+      padding: 16px 20px; border-radius: 8px; color: #c53030;
+    }
+    .error-block .error-title { font-weight: 600; font-size: 15px; margin-bottom: 8px; }
+    .error-block .error-detail { font-size: 14px; line-height: 1.8; }
 
     @media (max-width: 768px) {
       .container { padding: 16px; }
@@ -132,48 +130,12 @@
 <body>
   <div class="header">
     <h1>🔧 融合前端工作台</h1>
-    <span class="sub">需求标准化 &middot; Claude Code</span>
+    <span class="sub" id="headerSub">加载中…</span>
   </div>
 
   <div class="container">
-    <!-- Tabs -->
-    <div class="tabs">
-      <button class="tab active" data-tab="standardize">📄 需求标准化</button>
-      <button class="tab" data-tab="prompt">💬 自由 Prompt</button>
-    </div>
-
-    <!-- Standardize Panel -->
-    <div class="panel active" id="panel-standardize">
-      <div class="drop-zone" id="dropZone">
-        <div class="icon">📂</div>
-        <div class="hint">拖拽文件到此处，或 <strong>点击选择文件</strong></div>
-        <div class="types">支持 .txt .md .csv 等文本文件，可多选</div>
-      </div>
-      <input type="file" id="fileInput" multiple accept=".txt,.md,.csv,.eml,.json,.xml,.yaml,.yml" style="display:none">
-      <div class="file-list" id="fileList"></div>
-      <div class="actions">
-        <button class="btn btn-primary" id="btnStandardize" disabled>
-          <span id="standardizeSpinner" style="display:none" class="spinner"></span>
-          开始标准化
-        </button>
-        <button class="btn btn-secondary" id="btnClearFiles" disabled>清空文件</button>
-      </div>
-      <div class="status" id="standardizeStatus"></div>
-    </div>
-
-    <!-- Prompt Panel -->
-    <div class="panel" id="panel-prompt">
-      <div class="prompt-area">
-        <textarea id="promptInput" placeholder="输入任意提示词，将直接调用 Claude Code CLI 执行…&#10;&#10;示例：列出项目根目录下的所有 Java 工程"></textarea>
-        <div class="actions">
-          <button class="btn btn-primary" id="btnPrompt" disabled>
-            <span id="promptSpinner" style="display:none" class="spinner"></span>
-            提交执行
-          </button>
-        </div>
-      </div>
-      <div class="status" id="promptStatus"></div>
-    </div>
+    <div class="tabs" id="tabBar"></div>
+    <div id="panelContainer"></div>
 
     <!-- Shared Preview -->
     <div class="preview-section">

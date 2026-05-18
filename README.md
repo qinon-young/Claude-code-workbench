@@ -1,6 +1,6 @@
 # 融合前端工作台
 
-本地 Web 工作台原型，拖拽上传需求文档 → Claude Code CLI 执行 `/standardize-requirement` → 预览标准化后的 `final.md`。同时支持自由 Prompt 模式直接调用 CLI。
+本地 Web 工作台原型，通过 Web UI 驱动的 Workflow 引擎调用 Claude Code CLI 执行技能任务。
 
 ## 技术栈
 
@@ -10,10 +10,7 @@
 ## 快速开始
 
 ```bash
-# 安装依赖（使用 npmmirror 源，避免公司内网源不可达）
 npm install --registry=https://registry.npmmirror.com
-
-# 启动服务
 npm start
 ```
 
@@ -21,72 +18,70 @@ npm start
 
 ## 配置文件
 
-### config.json
-
-工作台主配置文件，首次启动前请按需修改：
+### config.json — 主配置
 
 | 字段 | 说明 |
 |------|------|
 | `workspaceRoot` | 工作区根目录（CLI 执行 cwd） |
-| `projectPaths` | 子工程列表（相对于 workspaceRoot） |
+| `projectPaths` | 子工程列表 |
 | `reqOutputDir` | 需求标准化输出目录 |
 | `server.port` | 服务端口 |
-| `server.cliTimeoutMs` | CLI 超时时间（毫秒） |
+| `server.cliTimeoutMs` | CLI 超时（毫秒，默认 600s） |
 | `log.dir` | 日志目录 |
-| `mcpServers` | MCP 服务器连接配置（非敏感部分） |
-| `databases` | 数据库连接占位（原型阶段预留） |
+| `mcpServers` | MCP 服务器配置 |
+| `databases` | 数据库占位（原型预留） |
 
-### .env
+### .env — 敏感凭证
 
-敏感凭证文件（**不入 git**），从 `.env.example` 复制并填写：
+从 `.env.example` 复制填写，**不入 git**。
 
-```bash
-cp .env.example .env
-```
+### workflows.json — Workflow 配置
 
-支持的变量：MCP API Key/Secret，MySQL/Redis/MinIO 连接密码。
+定义页面上可用的 Workflow，每个 Workflow 包含：
+
+| 字段 | 说明 |
+|------|------|
+| `id` | 唯一标识，对应前端 Tab |
+| `name` | 显示名称 |
+| `icon` | 图标（emoji） |
+| `type` | `upload`（文件上传）或 `text`（文本输入） |
+| `accept` | 上传类型时接受的文件扩展名 |
+| `steps` | Skill 步骤数组，每步指定 `skill` 名称和参数 |
+| `outputPath` | 输出文件路径模板（支持 `$taskDir`） |
+
+### .claude/skills/ — Skill 文件
+
+存放 skill 提示词文件（`.md`），由 `skill-runner.js` 加载并注入参数后传给 `claude -p` 执行。
 
 ## API
 
-### POST /api/standardize
-
-上传需求文件，触发 `/standardize-requirement` 标准化流程。
-
-- Content-Type: `multipart/form-data`
-- 字段: `files`（多文件）
-- 返回: `{ taskId, output, status }`
-
-### POST /api/prompt
-
-自由文本 Prompt，直接调用 `claude -p` 并返回 stdout。
-
-- Content-Type: `application/json`
-- Body: `{ "prompt": "..." }`
-- 返回: `{ taskId, output, status }`
-
-### GET /api/output/:taskId
-
-按 taskId 查询标准化任务的输出状态。
+| 端点 | 说明 |
+|------|------|
+| `GET /api/workflows` | 获取所有 Workflow 列表（供前端渲染） |
+| `POST /api/workflow/:id` | 执行指定 Workflow |
+| `GET /api/output/:taskId` | 查询任务输出状态 |
+| `POST /api/standardize` | 向后兼容别名 |
+| `POST /api/prompt` | 向后兼容别名 |
 
 ## 日志
 
-运行日志按天写入 `logs/YYYY-MM-DD.log`，记录：
-- 请求来源、taskId、文件列表/prompt 摘要
-- CLI spawn PID、耗时、退出码
-- 错误详情
+运行日志按天写入 `logs/YYYY-MM-DD.log`，记录请求、CLI spawn、Workflow 步骤、错误详情。
 
 ## 目录结构
 
 ```
 workbench/
-├── server.js          # Express 服务
-├── config.json        # 主配置文件
-├── config.js          # 配置加载模块（JSON + .env 合并）
-├── logger.js          # 日志模块（按天切割）
-├── .env.example       # 环境变量模板
+├── server.js              # Express 服务
+├── skill-runner.js        # Skill 加载与执行引擎
+├── config.json            # 主配置文件
+├── config.js              # 配置加载模块
+├── logger.js              # 日志模块
+├── workflows.json         # Workflow 定义
+├── .env.example           # 环境变量模板
+├── .claude/skills/        # Skill 提示词文件
+│   └── standardize-requirement.md
 ├── public/
-│   ├── index.html     # SPA 页面
-│   └── app.js         # 前端逻辑
-├── logs/              # 运行日志（gitignored）
-└── package.json
+│   ├── index.html         # SPA（动态 Tab + 拖拽/文本面板）
+│   └── app.js             # 前端逻辑
+└── logs/                  # 运行日志（gitignored）
 ```

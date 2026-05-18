@@ -2,21 +2,28 @@
 
 ## 项目概述
 
-融合前端本地 Web 工作台。Express + 原生 JS SPA，通过 Web UI 驱动 Claude Code CLI 执行需求标准化和自由 Prompt 任务。
+融合前端本地 Web 工作台。Express + 原生 JS SPA，通过 Web UI 驱动 Claude Code CLI 执行 Workflow（可包含多个 Skill 步骤）。
 
 ## 架构
 
 ```
 浏览器 (public/index.html + app.js)
-  │  fetch REST
+  │  GET /api/workflows → 动态渲染 Tab
+  │  POST /api/workflow/:id → 执行 Workflow
   ▼
 server.js (Express)
-  ├── config.js       ← 加载 config.json + .env，合并 MCP/DB 配置
-  ├── logger.js       ← 按天切割日志 → logs/YYYY-MM-DD.log
-  │  │  child_process.spawn('claude', ['-p', ...], { shell: true })
+  ├── config.js            ← 加载 config.json + .env
+  ├── logger.js            ← 按天切割 → logs/
+  ├── workflows.json       ← Workflow 定义
+  │  │  workflow 步骤循环
+  ▼
+skill-runner.js
+  │  1. 读取 .claude/skills/<name>.md
+  │  2. 替换 $$PLACEHOLDER$$ 占位符
+  │  3. child_process.spawn('claude', ['-p', prompt])
   ▼
 Claude Code CLI (cwd = config.workspaceRoot)
-  └── 执行 /standardize-requirement 或其他 prompt
+  └── 按 skill 指令执行文件操作
 ```
 
 ## 常用命令
@@ -25,52 +32,67 @@ Claude Code CLI (cwd = config.workspaceRoot)
 npm start              # 启动服务 (http://localhost:3100)
 ```
 
-## 配置文件
-
-| 文件 | 用途 | git |
-|------|------|-----|
-| `config.json` | 主配置：工作区路径、子工程列表、MCP 服务器、数据库占位 | ✓ |
-| `.env` | 敏感凭证：MCP API Key、数据库密码 | ✗ |
-| `.env.example` | `.env` 模板（不含真实值） | ✓ |
-
 ## 关键文件
 
-- [server.js](server.js) — Express 服务，3 个 API + CLI spawn 封装
-- [config.js](config.js) — 配置加载：JSON + dotenv 解析 + MCP 凭证合并 + DB 凭证合并
-- [config.json](config.json) — 主配置文件
-- [logger.js](logger.js) — 日志模块：`info()`/`error()`，按天写入 `logs/`
-- [public/index.html](public/index.html) — SPA（Tab 切换 + 拖拽上传 + Markdown 预览 + 错误展示）
-- [public/app.js](public/app.js) — 前端逻辑，含 `showError()` 在预览区展示错误
+| 文件 | 用途 |
+|------|------|
+| [server.js](server.js) | Express 服务，Workflow 执行 + CLI spawn + 4 个 API |
+| [skill-runner.js](skill-runner.js) | Skill 加载引擎：读 .md → 替换占位符 → 调用 spawnClaude |
+| [workflows.json](workflows.json) | Workflow 定义：standardize（上传+标准化）、prompt（自由文本） |
+| [config.json](config.json) | 主配置：工作区路径、子工程列表、MCP、数据库占位 |
+| [config.js](config.js) | 配置加载 + dotenv + MCP 凭证合并 + DB 凭证合并 |
+| [logger.js](logger.js) | 按天写入 `logs/YYYY-MM-DD.log` |
+| [.claude/skills/](.claude/skills/) | Skill prompt 文件，`$$KEY$$` 占位符传参 |
+| [public/index.html](public/index.html) | SPA 骨架（动态 Tab 容器） |
+| [public/app.js](public/app.js) | 前端逻辑：fetch workflows → 动态渲染 → 统一提交 |
 
 ## API 端点
 
 | 端点 | 说明 |
 |------|------|
-| `POST /api/standardize` | 上传文件 → 标准化需求 |
-| `POST /api/prompt` | 自由 prompt → CLI 输出 |
-| `GET /api/output/:taskId` | 查询标准化任务状态 |
+| `GET /api/workflows` | 返回 Workflow 列表（UI 渲染） |
+| `POST /api/workflow/:id` | 统一 Workflow 执行入口 |
+| `GET /api/output/:taskId` | 按 taskId 查询输出 |
+| `POST /api/standardize` | 向后兼容别名 → workflow/standardize |
+| `POST /api/prompt` | 向后兼容别名 → workflow/prompt |
 
-## 日志
+## 添加新 Skill
 
-- 路径：`logs/YYYY-MM-DD.log`
-- 内容：请求 IP、taskId、文件数/prompt 长度、CLI PID、耗时、退出码、错误信息
-- git ignored
+1. 在 `.claude/skills/` 创建 `<name>.md`，使用 `$$KEY$$` 作为参数占位符
+2. 在 `skill-runner.js` 的 `buildPrompt()` 中确认参数替换逻辑（默认已支持任意 KEY）
+3. 在 `workflows.json` 中添加一个 Workflow，其 `steps` 中引用该 skill 并传入参数
+
+## 添加新 Workflow
+
+在 `workflows.json` 的 `workflows` 数组中新增条目：
+
+```json
+{
+  "id": "my-workflow",
+  "name": "我的工作流",
+  "icon": "🔧",
+  "type": "upload",
+  "accept": ".txt,.md",
+  "steps": [
+    { "skill": "my-skill", "args": { "reqDir": "$taskDir" } }
+  ],
+  "outputPath": "$taskDir/output.md"
+}
+```
+
+前端会自动生成对应 Tab。
 
 ## 配置说明
 
-### MCP 服务器
+- 端口：`config.json` → `server.port`，环境变量 `PORT` 可覆盖
+- CLI 超时：`config.json` → `server.cliTimeoutMs`（默认 600s）
+- MCP：`config.json` 的 `mcpServers` + `.env` 的 `MCP_*` 凭证，通过 `getMcpEnv()` 合并后注入 CLI 进程
+- 数据库：`config.json` 占位 + `.env` 凭证合并，原型阶段不实际连接
 
-1. 在 `config.json` 的 `mcpServers` 中配置服务器连接（transport、url）
-2. 在 `.env` 中配置对应凭证（`MCP_*_API_KEY`、`MCP_*_SECRET`）
-3. `config.js` 的 `getMcpEnv()` 自动合并两者，通过环境变量注入到 Claude Code 子进程
+## 安全
 
-### 数据库
-
-`config.json` 的 `databases` 字段预留了 MySQL / Redis / MinIO 配置占位，`.env` 中的同名变量会覆盖 JSON 中的值。原型阶段不做实际连接。
-
-## 安全注意事项
-
-- `spawn` + `shell: true`（Windows 兼容），prompt 通过参数数组传递避免注入
+- `spawn` 参数数组传递 + `shell: true`（Windows 兼容）
+- prompt 占位符替换而非 shell 拼接
+- `.env` gitignored，凭证不入仓库
 - 文件上传限制 50MB / 20 个文件
-- `.env` 不入 git，凭证与代码分离
 - 无认证机制（原型阶段）

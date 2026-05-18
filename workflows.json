@@ -1,0 +1,30 @@
+{
+  "workflows": [
+    {
+      "id": "standardize",
+      "name": "需求标准化",
+      "icon": "📄",
+      "type": "upload",
+      "accept": ".txt,.md,.csv,.eml,.json,.xml,.yaml,.yml",
+      "steps": [
+        {
+          "skill": "standardize-requirement",
+          "args": {
+            "reqDir": "$taskDir"
+          }
+        }
+      ],
+      "outputType": "file",
+      "outputPath": "$taskDir/final.md",
+      "fallbackOutputPath": "$taskDir/working/草稿-v1.md"
+    },
+    {
+      "id": "prompt",
+      "name": "自由 Prompt",
+      "icon": "💬",
+      "type": "text",
+      "steps": [],
+      "outputType": "stdout"
+    }
+  ]
+}

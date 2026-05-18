@@ -11,7 +11,7 @@
   "reqOutputDir": "UPC_TEST/Claude/需求文档",
   "server": {
     "port": 3100,
-    "cliTimeoutMs": 300000
+    "cliTimeoutMs": 600000
   },
   "log": {
     "dir": "logs"

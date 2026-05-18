@@ -1,169 +1,251 @@
-// ── Tab switching ────────────────────────────────────────────
-const tabs = document.querySelectorAll('.tab');
-const panels = document.querySelectorAll('.panel');
+// ── State ───────────────────────────────────────────────────
+let workflows = [];
+let activeWorkflowId = null;
 
-tabs.forEach((tab) => {
-  tab.addEventListener('click', () => {
-    tabs.forEach((t) => t.classList.remove('active'));
-    panels.forEach((p) => p.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
-  });
-});
-
-// ── File handling ────────────────────────────────────────────
-const dropZone = document.getElementById('dropZone');
-const fileInput = document.getElementById('fileInput');
-const fileList = document.getElementById('fileList');
-const btnStandardize = document.getElementById('btnStandardize');
-const btnClearFiles = document.getElementById('btnClearFiles');
-const standardizeStatus = document.getElementById('standardizeStatus');
-const standardizeSpinner = document.getElementById('standardizeSpinner');
-
-let selectedFiles = new DataTransfer();
-
-dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-dropZone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  dropZone.classList.remove('dragover');
-  addFiles(e.dataTransfer.files);
-});
-fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
-
-function addFiles(files) {
-  for (const f of files) {
-    let dup = false;
-    for (const ex of selectedFiles.files) { if (ex.name === f.name && ex.size === f.size) { dup = true; break; } }
-    if (dup) continue;
-    selectedFiles.items.add(f);
-  }
-  renderFileList();
-}
-
-function renderFileList() {
-  fileList.innerHTML = '';
-  const files = selectedFiles.files;
-  if (files.length === 0) {
-    btnStandardize.disabled = true;
-    btnClearFiles.disabled = true;
+// ── Init ────────────────────────────────────────────────────
+async function init() {
+  try {
+    const res = await fetch('/api/workflows');
+    workflows = await res.json();
+  } catch {
+    document.getElementById('headerSub').textContent = '无法连接服务';
     return;
   }
-  btnStandardize.disabled = false;
-  btnClearFiles.disabled = false;
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    const div = document.createElement('div');
-    div.className = 'file-item';
-    const size = f.size < 1024 * 1024 ? (f.size / 1024).toFixed(1) + ' KB' : (f.size / (1024 * 1024)).toFixed(1) + ' MB';
-    div.innerHTML = `
-      <span class="name">📎 ${escapeHtml(f.name)}</span>
-      <span class="size">${size}</span>
-      <span class="remove" data-idx="${i}">&times;</span>
-    `;
-    fileList.appendChild(div);
+
+  if (workflows.length === 0) {
+    document.getElementById('headerSub').textContent = '无可用工作流';
+    return;
   }
-  document.querySelectorAll('.file-item .remove').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const idx = Number(el.dataset.idx);
-      const dt = new DataTransfer();
-      const files = selectedFiles.files;
-      for (let j = 0; j < files.length; j++) { if (j !== idx) dt.items.add(files[j]); }
-      selectedFiles = dt;
-      renderFileList();
-    });
+
+  document.getElementById('headerSub').textContent = workflows.map((w) => w.name).join(' · ');
+
+  renderTabs();
+  renderPanels();
+  switchTab(workflows[0].id);
+}
+
+// ── Tabs ────────────────────────────────────────────────────
+function renderTabs() {
+  const bar = document.getElementById('tabBar');
+  bar.innerHTML = '';
+  workflows.forEach((wf) => {
+    const btn = document.createElement('button');
+    btn.className = 'tab';
+    btn.dataset.id = wf.id;
+    btn.textContent = `${wf.icon} ${wf.name}`;
+    btn.addEventListener('click', () => switchTab(wf.id));
+    bar.appendChild(btn);
   });
 }
 
-btnClearFiles.addEventListener('click', () => {
-  selectedFiles = new DataTransfer();
-  renderFileList();
-});
+function switchTab(id) {
+  activeWorkflowId = id;
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.id === id));
+  document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.dataset.id === id));
+}
 
-// ── Standardize submit ──────────────────────────────────────
-btnStandardize.addEventListener('click', async () => {
-  if (selectedFiles.files.length === 0) return;
+// ── Panels ──────────────────────────────────────────────────
+function renderPanels() {
+  const container = document.getElementById('panelContainer');
+  container.innerHTML = '';
 
-  btnStandardize.disabled = true;
-  standardizeSpinner.style.display = 'inline-block';
-  standardizeStatus.textContent = '正在上传并标准化…';
-  standardizeStatus.className = 'status';
-  clearPreview();
+  workflows.forEach((wf) => {
+    const div = document.createElement('div');
+    div.className = 'panel';
+    div.dataset.id = wf.id;
 
-  const formData = new FormData();
-  for (const f of selectedFiles.files) {
-    formData.append('files', f);
-  }
-
-  try {
-    const res = await fetch('/api/standardize', { method: 'POST', body: formData });
-    const data = await res.json();
-    if (data.status === 'done') {
-      standardizeStatus.textContent = `完成 — taskId: ${data.taskId}`;
-      standardizeStatus.className = 'status success';
-      showPreview(data.output, data.taskId);
+    if (wf.type === 'upload') {
+      div.innerHTML = buildUploadPanel(wf);
+    } else if (wf.type === 'text') {
+      div.innerHTML = buildTextPanel(wf);
     } else {
-      standardizeStatus.textContent = data.error || '未知错误';
-      standardizeStatus.className = 'status error';
-      showError(data.error || '请求失败，服务端未返回具体错误信息', data.taskId);
+      div.innerHTML = `<p>不支持的工作流类型: ${wf.type}</p>`;
     }
-  } catch (err) {
-    standardizeStatus.textContent = '网络错误: ' + err.message;
-    standardizeStatus.className = 'status error';
-    showError('网络连接失败：无法连接到工作台服务。<br><br>请检查：<br>1. 服务是否已启动（<code>npm start</code>）<br>2. 端口 ' + (location.port || '3100') + ' 是否被占用', null);
-  } finally {
-    btnStandardize.disabled = false;
-    standardizeSpinner.style.display = 'none';
-  }
-});
 
-// ── Prompt submit ────────────────────────────────────────────
-const promptInput = document.getElementById('promptInput');
-const btnPrompt = document.getElementById('btnPrompt');
-const promptStatus = document.getElementById('promptStatus');
-const promptSpinner = document.getElementById('promptSpinner');
+    container.appendChild(div);
+  });
 
-promptInput.addEventListener('input', () => {
-  btnPrompt.disabled = promptInput.value.trim().length === 0;
-});
+  // Wire up events after DOM insertion
+  workflows.forEach((wf) => {
+    if (wf.type === 'upload') wireUploadPanel(wf);
+    if (wf.type === 'text') wireTextPanel(wf);
+  });
+}
 
-btnPrompt.addEventListener('click', async () => {
-  const prompt = promptInput.value.trim();
-  if (!prompt) return;
+// ── Upload panel ────────────────────────────────────────────
+function buildUploadPanel(wf) {
+  const accept = wf.accept || '.txt,.md,.csv';
+  return `
+    <div class="drop-zone" id="dropZone-${wf.id}">
+      <div class="icon">📂</div>
+      <div class="hint">拖拽文件到此处，或 <strong>点击选择文件</strong></div>
+      <div class="types">支持 ${accept} 等文本文件，可多选</div>
+    </div>
+    <input type="file" id="fileInput-${wf.id}" multiple accept="${accept}" style="display:none">
+    <div class="file-list" id="fileList-${wf.id}"></div>
+    <div class="actions">
+      <button class="btn btn-primary" id="btnSubmit-${wf.id}" disabled>
+        <span id="spinner-${wf.id}" style="display:none" class="spinner"></span>
+        开始${wf.name}
+      </button>
+      <button class="btn btn-secondary" id="btnClear-${wf.id}" disabled>清空文件</button>
+    </div>
+    <div class="status" id="status-${wf.id}"></div>
+  `;
+}
 
-  btnPrompt.disabled = true;
-  promptSpinner.style.display = 'inline-block';
-  promptStatus.textContent = '正在执行…';
-  promptStatus.className = 'status';
-  clearPreview();
+function wireUploadPanel(wf) {
+  const dropZone = document.getElementById(`dropZone-${wf.id}`);
+  const fileInput = document.getElementById(`fileInput-${wf.id}`);
+  const fileList = document.getElementById(`fileList-${wf.id}`);
+  const btnSubmit = document.getElementById(`btnSubmit-${wf.id}`);
+  const btnClear = document.getElementById(`btnClear-${wf.id}`);
+  const statusEl = document.getElementById(`status-${wf.id}`);
+  const spinner = document.getElementById(`spinner-${wf.id}`);
 
-  try {
-    const res = await fetch('/api/prompt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
+  let selectedFiles = new DataTransfer();
+
+  function renderList() {
+    fileList.innerHTML = '';
+    const files = selectedFiles.files;
+    btnSubmit.disabled = files.length === 0;
+    btnClear.disabled = files.length === 0;
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const div = document.createElement('div');
+      div.className = 'file-item';
+      const size = f.size < 1024 * 1024 ? (f.size / 1024).toFixed(1) + ' KB' : (f.size / (1024 * 1024)).toFixed(1) + ' MB';
+      div.innerHTML = `<span class="name">📎 ${escapeHtml(f.name)}</span><span class="size">${size}</span><span class="remove" data-idx="${i}">&times;</span>`;
+      fileList.appendChild(div);
+    }
+    document.querySelectorAll(`#fileList-${wf.id} .remove`).forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = Number(el.dataset.idx);
+        const dt = new DataTransfer();
+        for (let j = 0; j < selectedFiles.files.length; j++) {
+          if (j !== idx) dt.items.add(selectedFiles.files[j]);
+        }
+        selectedFiles = dt;
+        renderList();
+      });
     });
-    const data = await res.json();
-    if (data.status === 'done') {
-      promptStatus.textContent = `完成 — taskId: ${data.taskId}`;
-      promptStatus.className = 'status success';
-      showPreview(data.output, data.taskId);
-    } else {
-      promptStatus.textContent = data.error || '未知错误';
-      promptStatus.className = 'status error';
-      showError(data.error || '请求失败，服务端未返回具体错误信息', data.taskId);
-    }
-  } catch (err) {
-    promptStatus.textContent = '网络错误: ' + err.message;
-    promptStatus.className = 'status error';
-    showError('网络连接失败：无法连接到工作台服务。<br><br>请检查：<br>1. 服务是否已启动（<code>npm start</code>）<br>2. 端口 ' + (location.port || '3100') + ' 是否被占用', null);
-  } finally {
-    btnPrompt.disabled = false;
-    promptSpinner.style.display = 'none';
   }
-});
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    for (const f of e.dataTransfer.files) {
+      let dup = false;
+      for (const ex of selectedFiles.files) { if (ex.name === f.name && ex.size === f.size) { dup = true; break; } }
+      if (!dup) selectedFiles.items.add(f);
+    }
+    renderList();
+  });
+  fileInput.addEventListener('change', () => {
+    for (const f of fileInput.files) selectedFiles.items.add(f);
+    fileInput.value = '';
+    renderList();
+  });
+  btnClear.addEventListener('click', () => { selectedFiles = new DataTransfer(); renderList(); });
+
+  btnSubmit.addEventListener('click', async () => {
+    if (selectedFiles.files.length === 0) return;
+    btnSubmit.disabled = true;
+    spinner.style.display = 'inline-block';
+    statusEl.textContent = '正在上传并执行…';
+    statusEl.className = 'status';
+    clearPreview();
+
+    const formData = new FormData();
+    for (const f of selectedFiles.files) formData.append('files', f);
+
+    try {
+      const res = await fetch(`/api/workflow/${wf.id}`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.status === 'done') {
+        statusEl.textContent = `完成 — ${data.taskId}`;
+        statusEl.className = 'status success';
+        showPreview(data.output, data.taskId);
+      } else {
+        statusEl.textContent = data.error || '未知错误';
+        statusEl.className = 'status error';
+        showWorkflowError(wf, data.error || '请求失败', data.taskId);
+      }
+    } catch (err) {
+      statusEl.textContent = '网络错误: ' + err.message;
+      statusEl.className = 'status error';
+      showWorkflowError(wf, '网络连接失败。<br><br>请检查：<br>1. 服务是否已启动<br>2. 端口 ' + (location.port || '3100'), null);
+    } finally {
+      btnSubmit.disabled = false;
+      spinner.style.display = 'none';
+    }
+  });
+}
+
+// ── Text panel ──────────────────────────────────────────────
+function buildTextPanel(wf) {
+  return `
+    <div class="prompt-area">
+      <textarea id="promptInput-${wf.id}" placeholder="输入任意提示词，将直接调用 Claude Code CLI 执行…&#10;&#10;示例：列出项目根目录下的所有 Java 工程"></textarea>
+      <div class="actions">
+        <button class="btn btn-primary" id="btnSubmit-${wf.id}" disabled>
+          <span id="spinner-${wf.id}" style="display:none" class="spinner"></span>
+          提交执行
+        </button>
+      </div>
+    </div>
+    <div class="status" id="status-${wf.id}"></div>
+  `;
+}
+
+function wireTextPanel(wf) {
+  const input = document.getElementById(`promptInput-${wf.id}`);
+  const btnSubmit = document.getElementById(`btnSubmit-${wf.id}`);
+  const statusEl = document.getElementById(`status-${wf.id}`);
+  const spinner = document.getElementById(`spinner-${wf.id}`);
+
+  input.addEventListener('input', () => { btnSubmit.disabled = input.value.trim().length === 0; });
+
+  btnSubmit.addEventListener('click', async () => {
+    const prompt = input.value.trim();
+    if (!prompt) return;
+
+    btnSubmit.disabled = true;
+    spinner.style.display = 'inline-block';
+    statusEl.textContent = '正在执行…';
+    statusEl.className = 'status';
+    clearPreview();
+
+    try {
+      const res = await fetch(`/api/workflow/${wf.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      const data = await res.json();
+      if (data.status === 'done') {
+        statusEl.textContent = `完成 — ${data.taskId}`;
+        statusEl.className = 'status success';
+        showPreview(data.output, data.taskId);
+      } else {
+        statusEl.textContent = data.error || '未知错误';
+        statusEl.className = 'status error';
+        showWorkflowError(wf, data.error || '请求失败', data.taskId);
+      }
+    } catch (err) {
+      statusEl.textContent = '网络错误: ' + err.message;
+      statusEl.className = 'status error';
+      showWorkflowError(wf, '网络连接失败。请检查服务是否已启动。', null);
+    } finally {
+      btnSubmit.disabled = false;
+      spinner.style.display = 'none';
+    }
+  });
+}
 
 // ── Preview ─────────────────────────────────────────────────
 const previewEmpty = document.getElementById('previewEmpty');
@@ -185,28 +267,27 @@ function showPreview(markdown, taskId) {
 
   if (typeof marked === 'undefined') {
     previewContent.innerHTML = '<pre>' + escapeHtml(markdown) + '</pre>';
-    return;
+  } else {
+    marked.setOptions?.({ breaks: true, gfm: true });
+    previewContent.innerHTML = marked.parse(markdown);
   }
-
-  marked.setOptions?.({ breaks: true, gfm: true });
-  const html = marked.parse(markdown);
-  previewContent.innerHTML = html;
   previewContent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-function showError(message, taskId) {
+function showWorkflowError(wf, message, taskId) {
   previewEmpty.style.display = 'none';
   previewContent.style.display = 'block';
-  previewContent.className = 'preview-content error-block';
+  previewContent.className = 'preview-content';
   previewLabel.textContent = taskId ? `taskId: ${taskId}` : '';
 
+  const stepInfo = wf.stepCount > 0
+    ? `「${wf.name}」包含 ${wf.stepCount} 个步骤`
+    : '「' + wf.name + '」';
+
   previewContent.innerHTML = `
-    <div style="
-      background: #fff5f5; border: 1px solid #feb2b2; border-left: 4px solid #e53e3e;
-      padding: 16px 20px; border-radius: 8px; color: #c53030;
-    ">
-      <div style="font-weight:600; font-size:15px; margin-bottom:8px;">❌ 执行失败</div>
-      <div style="font-size:14px; line-height:1.8;">${message}</div>
+    <div class="error-block">
+      <div class="error-title">❌ 执行 Workflow ${stepInfo} 时出错</div>
+      <div class="error-detail">${message}</div>
     </div>
   `;
   previewContent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -217,3 +298,6 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+// ── Boot ────────────────────────────────────────────────────
+init();
