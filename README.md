@@ -1,6 +1,6 @@
 # 融合前端工作台 
 
-本地 Web 工作台原型，通过 Web UI 驱动的 Workflow 引擎调用 Claude Code CLI 执行技能任务。 
+本地 Web 工作台原型，通过 Web UI 驱动的 Workflow 引擎调用 Claude Code CLI 执行技能任务。  
 
 ## 技术栈 
 
